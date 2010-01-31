@@ -13,6 +13,19 @@ use Carp::Clan;
 use List::Util qw(first);
 use Data::Util qw(:check neat);
 
+use Test::More;
+
+our %SYMBOLED_COMP_OP = (
+    -equals                 => '=',
+    -not_equals             => '<>',
+    -greater_than           => '>',
+    -greater_than_or_equals => '>=',
+    -less_than              => '<',
+    -less_than_or_equals    => '<=',
+);
+
+our %COMP_OP = map { ( $_ => undef ) } values %SYMBOLED_COMP_OP;
+
 sub new {
     my ( $class, %args ) = @_;
 
@@ -34,7 +47,10 @@ sub _select_list {
         ( $stmt, @bind ) = $self->_select_list_array_ref($select_list);
     }
     else {
-        croak(sprintf('Not supported data type for _select_list() : (%s)', neat($select_list)));
+        croak(
+            sprintf( 'Not supported data type for _select_list() : (%s)',
+                neat($select_list) )
+        );
     }
 
     return ( $stmt, @bind );
@@ -66,23 +82,26 @@ sub _value_expression {
     if ( is_string($value_expression) ) {
         ( $stmt, @bind ) = ($value_expression);
     }
-    elsif ( is_array_ref $value_expression ) {
+    elsif ( ref $value_expression eq 'REF' && is_array_ref $$value_expression ) {
         ( $stmt, @bind ) =
-          $self->_value_expression_array_ref($value_expression);
+          $self->_value_expression_array_ref_ref($value_expression);
     }
     elsif ( is_hash_ref $value_expression ) {
         ( $stmt, @bind ) = $self->_value_expression_hash_ref($value_expression);
     }
     else {
-        croak(sprintf('Not supported data type for _value_expression() : (%s)', neat($value_expression)));
+        croak(
+            sprintf( 'Not supported data type for _value_expression() : (%s)',
+                neat($value_expression) )
+        );
     }
 
     return ( $stmt, @bind );
 }
 
-sub _value_expression_array_ref {
+sub _value_expression_array_ref_ref {
     my ( $self, $value_expression ) = @_;
-    my ( $stmt, @bind )             = @$value_expression;
+    my ( $stmt, @bind )             = @$$value_expression;
     return ( $stmt, @bind );
 }
 
@@ -93,7 +112,7 @@ sub _value_expression_hash_ref {
       $self->_value_expression( $value_expression->{-value} );
 
     if ( $value_expression->{-with_paren} ) {
-        $stmt = ( $self->compact ) ? '(' . $stmt . ')' : '( ' . $stmt . ' )';
+        $stmt = $self->_paren($stmt);
     }
 
     if ( exists $value_expression->{-as} && length $value_expression->{-as} ) {
@@ -112,17 +131,23 @@ sub _table_reference {
     if ( is_string $table_reference ) {
         $stmt = $table_reference;
     }
-    elsif ( is_array_ref $table_reference ) {
-        ( $stmt, @bind ) = $self->_table_reference_array_ref($table_reference);
+    elsif ( ref $table_reference && is_array_ref $$table_reference ) {
+        ( $stmt, @bind ) = $self->_table_reference_array_ref_ref($table_reference);
     }
     elsif ( is_hash_ref $table_reference ) {
         ( $stmt, @bind ) = $self->_table_reference_hash_ref($table_reference);
     }
+    else {
+        croak(
+            sprintf( 'Not supported data type for _table_reference() : (%s)',
+                neat($table_reference) )
+        );
+    }
 }
 
-sub _table_reference_array_ref {
+sub _table_reference_array_ref_ref {
     my ( $self, $table_reference ) = @_;
-    my ( $stmt, @bind )            = @$table_reference;
+    my ( $stmt, @bind )            = @$%table_reference;
     return ( $stmt, @bind );
 }
 
@@ -136,7 +161,7 @@ sub _table_reference_hash_ref {
     }
 
     if ( $table_reference->{-with_paren} ) {
-        $stmt = ( $self->compact ) ? '(' . $stmt . ')' : '( ' . $stmt . ' )';
+        $stmt = $self->_paren($stmt);
     }
 
     if ( exists $table_reference->{-as} ) {
@@ -156,10 +181,10 @@ sub _table_reference_hash_ref {
           . $self->_column_name_list( $table_reference->{-cols} ) . ' )';
     }
 
-#     if ( exists $table_reference->{-join} ) {
-#         my ( $joined_stmt, @joined_bind ) =
-#           $self->_joined_table( $self, $table_reference->{-join} );
-#     }
+    #     if ( exists $table_reference->{-join} ) {
+    #         my ( $joined_stmt, @joined_bind ) =
+    #           $self->_joined_table( $self, $table_reference->{-join} );
+    #     }
 
     return ( $stmt, @bind );
 }
@@ -185,13 +210,16 @@ sub _joined_table {
     elsif ( $join_type eq 'union' ) {
     }
     else {
-        croak(sprintf('Not supported join type for _joined_table() : (%s)', neat($join_type)));
+        croak(
+            sprintf( 'Not supported join type for _joined_table() : (%s)',
+                neat($join_type) )
+        );
     }
 }
 
 # http://savage.net.au/SQL/sql-99.bnf.html#search condition
 sub _qualified_join {
-    my ($self, $joined_table) = @_;
+    my ( $self, $joined_table ) = @_;
 }
 
 # http://savage.net.au/SQL/sql-99.bnf.html#search condition
@@ -203,35 +231,253 @@ sub _search_condition {
     elsif ( is_array_ref $boolean_value_expression ) {
     }
     else {
-        croak(sprintf('Not supported data type for _search_condition() : (%s)', neat($boolean_value_expression)));
+        croak(
+            sprintf( 'Not supported data type for _search_condition() : (%s)',
+                neat($boolean_value_expression) )
+        );
     }
 }
 
 # http://savage.net.au/SQL/sql-99.bnf.html#boolean%20term
 sub _boolean_term {
-    my ($self, $boolean_term) = @_;
+    my ( $self, $boolean_term ) = @_;
 
-    my ($stmt, @bind) = @_;
+    my ( $stmt, @bind );
     my @boolean_factors;
 
-    for my $row_value_expression ( keys %$boolean_term ) {
+    for my $row_value_expression ( sort { $a cmp $b } keys %$boolean_term ) {
         my $predicate = $boolean_term->{$row_value_expression};
 
+        my ( $boolean_factor_stmt, @boolean_factor_bind );
+
         if ( is_value $predicate ) {
-            push( @boolean_factors, sprintf('%s = ?', $row_value_expression) );
-            push( @bind, $predicate );
+            ( $boolean_factor_stmt, @boolean_factor_bind ) = $self->_boolean_factor_op(
+                $row_value_expression,
+                '=',
+                $predicate
+            );
+
+            push( @boolean_factors, $boolean_factor_stmt );
+            push( @bind, @boolean_factor_bind );
+        }
+        elsif ( !defined $predicate ) {
+            push( @boolean_factors, sprintf('%s IS NULL', $row_value_expression) );
+        }
+        elsif ( ref $predicate eq 'REF' && is_array_ref $$predicate ) {
+            ( $boolean_factor_stmt, @boolean_factor_bind ) =
+              $self->_boolean_factor_array_ref_ref( $row_value_expression,
+                $predicate );
+            push( @boolean_factors, $boolean_factor_stmt );
+            push( @bind,            @boolean_factor_bind );
         }
         elsif ( is_scalar_ref $predicate ) {
-            push( @boolean_factors, sprintf('%s %s', $row_value_expression, $$predicate) );
+            ( $boolean_factor_stmt, @boolean_factor_bind ) = $self->_boolean_factor_op(
+                $row_value_expression,
+                '=',
+                $predicate
+            );
+
+            push( @boolean_factors, $boolean_factor_stmt );
         }
         elsif ( is_array_ref $predicate ) {
-            my ( $predicate_stmt, @predicate_bind) =  @$predicate;
-            push( @boolean_factors, sprintf('%s %s', $row_value_expression, $predicate_stmt) );
-            push( @bind, @predicate_bind );
+            ( $boolean_factor_stmt, @boolean_factor_bind ) =
+              $self->_boolean_factor_function( $row_value_expression, 'IN', @$predicate );
+            push( @boolean_factors, $boolean_factor_stmt );
+            push( @bind,            @boolean_factor_bind );
         }
         elsif ( is_hash_ref $predicate ) {
+            ( $boolean_factor_stmt, @boolean_factor_bind ) =
+              $self->_boolean_factor_hash_ref( $row_value_expression,
+                $predicate );
+            push( @boolean_factors, $boolean_factor_stmt );
+            push( @bind,            @boolean_factor_bind );
+        }
+        else {
+            croak(
+                sprintf( 'Not supported data type for _boolean_term() : (%s)',
+                    neat($predicate) )
+            );
         }
     }
+
+    $stmt = join( $self->_case(' AND '), @boolean_factors );
+
+    return ( $stmt, @bind );
+}
+
+sub _boolean_factor_array_ref_ref {
+    my ( $self, $row_value_expression, $predicate ) = @_;
+
+    my ( $statement, @bind ) = @{$$predicate};
+    my $stmt = sprintf( '%s %s', $row_value_expression, $statement );
+
+    return ( $stmt, @bind );
+}
+
+sub _boolean_factor_hash_ref {
+    my ( $self, $row_value_expression, $predicate ) = @_;
+
+    my ( $stmt, @bind );
+    my @op_stmts;
+
+    for my $op ( sort { $a cmp $b } keys %$predicate ) {
+        my ($op_stmt, @op_bind);
+
+        if ( first { $op eq $_ } ( keys %COMP_OP, keys %SYMBOLED_COMP_OP ) ) {
+            my $predicate_value = $predicate->{$op};
+            $op = $self->_normalize_op($op);
+
+            if ( is_value $predicate_value ) {
+                ( $op_stmt, @op_bind ) = $self->_boolean_factor_op(
+                    $row_value_expression,
+                    $op,
+                    $predicate_value,
+                );
+
+                push( @bind, @op_bind );
+            }
+            elsif ( is_scalar_ref $predicate_value ) {
+                ( $op_stmt ) = $self->_boolean_factor_op(
+                    $row_value_expression,
+                    $op,
+                    $predicate_value,
+                );
+            }
+            elsif ( is_array_ref $predicate_value ) {
+                if ( $op eq '=' || $op eq '<>' ) {
+                    ( $op_stmt, @op_bind ) = $self->_boolean_factor_function(
+                        $row_value_expression,
+                        $op eq '=' ? 'IN' : 'NOT IN',
+                        @{$predicate_value},
+                    );
+                    push( @bind, @op_bind );
+                }
+                else {
+                    my @or_stmts;
+
+                    for (@$predicate_value) {
+                        my ( $or_stmt, @op_bind ) = $self->_boolean_factor_op( $row_value_expression, $op, $_ );
+                        push(@or_stmts, $or_stmt);
+                        push(@bind, @op_bind);
+                    }
+
+                    $op_stmt = join( $self->_case(' OR '), @or_stmts );
+                    $op_stmt = $self->_paren($op_stmt);
+                }
+            }
+            elsif ( is_hash_ref $predicate_value ) {
+                if ( my $quantifier = first { exists $predicate_value->{$_} } (qw/-any -some -all/, ( map { ( $_, lc $_ ) } qw(ANY SOME ALL) )) ) {
+                    my $quantifier_value = $predicate_value->{$quantifier};
+                    $quantifier = $self->_normalize_op( $quantifier );
+                }
+            }
+            else {
+            }
+        }
+        elsif ( first { $op eq $_ } (qw/-between -not_between/, (map { $_, lc $_ } ('BETWEEN', 'NOT BETWEEN')) ) ) {
+            my @predicate_value = @{$predicate->{$op}};
+            $op = $self->_normalize_op($op);
+
+            ( $op_stmt, @op_bind ) = $self->_boolean_factor_function(
+                $row_value_expression,
+                $op,
+                splice(@predicate_value, 0, 2),
+            );
+
+            push( @bind, @op_bind );
+        }
+        elsif ( first { $op eq $_ } (qw/-in -not_in/, (map { $_, lc $_ } ('IN', 'NOT IN'))) ) {
+            my @predicate_value = @{$predicate->{$op}};
+            $op = $self->_normalize_op($op);
+
+            ( $op_stmt, @op_bind ) = $self->_boolean_factor_function(
+                $row_value_expression,
+                $op,
+                @predicate_value,
+            );
+
+            push( @bind, @op_bind );
+        }
+        elsif ( first { $op eq $_ } (qw/-like -not_like/, ( map { $_, lc $_ } ('LIKE', 'NOT LIKE'))) ) {
+            my $predicate_value = $predicate->{$op};
+            $op = $self->_normalize_op($op);
+
+            ( $op_stmt, @op_bind ) = $self->_boolean_factor_op(
+                $row_value_expression,
+                $op,
+                $predicate_value,
+            );
+
+            push( @bind, @op_bind );
+        }
+        elsif ( first { $op eq $_ } (qw/-is_null -is_not_null/, ( map { $_, lc $_ } ('IS NULL', 'IS NOT NULL'))) ) {
+            $op = $self->_normalize_op($op);
+            $op_stmt = sprintf('%s %s', $row_value_expression, $op)
+        }
+        
+
+        push( @op_stmts, $op_stmt );
+    }
+
+    $stmt = join( $self->_case(' AND '), @op_stmts );
+
+    return ( $stmt, @bind );
+}
+
+sub _boolean_factor_op {
+    my ($self, $row_value_expression, $op, $bind) = @_;
+
+    my ($stmt, @bind);
+
+    if ( is_value $bind ) {
+        $stmt = sprintf(
+            (exists $COMP_OP{$op} && $self->compact) ? '%s%s?' : '%s %s ?',
+            $row_value_expression,
+            $self->_case($op),
+        );
+        push( @bind, $bind );
+    }
+    elsif ( is_scalar_ref $bind ) {
+        $stmt = sprintf(
+            (exists $COMP_OP{$op} && $self->compact) ? '%s%s%s' : '%s %s %s',
+            $row_value_expression,
+            $self->_case($op),
+            $$bind
+        );
+    }
+
+    return ($stmt, @bind);
+}
+
+sub _boolean_factor_function {
+    my ($self, $row_value_expression, $function, @args) = @_;
+
+    my ($stmt, @bind);
+
+    $stmt = sprintf(
+        $self->compact ? '%s %s(%s)' : '%s %s (%s)',
+        $row_value_expression,
+        $self->_case($function),
+        join( $self->compact ? ',' : ', ',
+              ( map { ref $_ ? $$_ : '?' } @args ) )
+    );
+
+    push( @bind, grep { !ref $_ } @args );
+
+    return ($stmt, @bind);
+}
+
+sub _normalize_op {
+    my ( $self, $op ) = @_;
+
+    return $SYMBOLED_COMP_OP{$op} if (exists $SYMBOLED_COMP_OP{$op});
+    return $op unless ($op =~ m/^-(.*)$/);
+    return $self->_case(join(' ', split(/_/, $1)));
+}
+
+sub _paren {
+    my ( $self, $sql ) = @_;
+    return $self->compact ? '(' . $sql . ')' : '( ' . $sql . ' )';
 }
 
 sub _case {
