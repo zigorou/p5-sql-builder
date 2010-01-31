@@ -379,6 +379,13 @@ sub _boolean_factor_hash_ref {
                         );
                     }
                     elsif ( ref $quantifier_value eq 'REF' && is_array_ref $$quantifier_value ) {
+                        ($op_stmt, @op_bind) = @$$quantifier_value;
+                        $op_stmt = $self->_boolean_factor_quantified(
+                            $row_value_expression,
+                            $op,
+                            $quantifier,
+                            $op_stmt,
+                        );
                     }
                     else {
                     }
