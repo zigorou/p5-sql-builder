@@ -369,6 +369,19 @@ sub _boolean_factor_hash_ref {
                 if ( my $quantifier = first { exists $predicate_value->{$_} } (qw/-any -some -all/, ( map { ( $_, lc $_ ) } qw(ANY SOME ALL) )) ) {
                     my $quantifier_value = $predicate_value->{$quantifier};
                     $quantifier = $self->_normalize_op( $quantifier );
+
+                    if ( is_value $quantifier_value ) {
+                        $op_stmt = $self->_boolean_factor_quantified(
+                            $row_value_expression,
+                            $op,
+                            $quantifier,
+                            $quantifier_value,
+                        );
+                    }
+                    elsif ( ref $quantifier_value eq 'REF' && is_array_ref $$quantifier_value ) {
+                    }
+                    else {
+                    }
                 }
             }
             else {
@@ -414,7 +427,6 @@ sub _boolean_factor_hash_ref {
             $op = $self->_normalize_op($op);
             $op_stmt = sprintf('%s %s', $row_value_expression, $op)
         }
-        
 
         push( @op_stmts, $op_stmt );
     }
@@ -465,6 +477,22 @@ sub _boolean_factor_function {
     push( @bind, grep { !ref $_ } @args );
 
     return ($stmt, @bind);
+}
+
+sub _boolean_factor_quantified {
+    my ($self, $row_value_expression, $op, $quantified, $query) = @_;
+
+    my ($stmt);
+
+    $stmt = sprintf(
+        (exists $COMP_OP{$op} && $self->compact) ? '%s%s%s(%s)' : '%s %s %s ( %s )',
+        $row_value_expression,
+        $op,
+        $self->_case($quantified),
+        $query,
+    );
+
+    return ($stmt);
 }
 
 sub _normalize_op {
