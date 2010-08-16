@@ -2,18 +2,15 @@ package SQL::Builder;
 
 use strict;
 use warnings;
-
-our $VERSION = '0.01';
-
-use base qw(Class::Accessor::Fast);
-
-__PACKAGE__->mk_accessors(qw/upper_case compact strict/);
+use parent qw(Class::Accessor::Fast);
 
 use Carp::Clan;
 use List::Util qw(first);
 use Data::Util qw(:check neat);
 
-use Test::More;
+our $VERSION = '0.01';
+
+__PACKAGE__->mk_accessors(qw/upper_case compact strict/);
 
 our %SYMBOLED_COMP_OP = (
     -equals                 => '=',

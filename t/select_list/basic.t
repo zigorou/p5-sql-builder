@@ -58,6 +58,42 @@ test_select_list(
 );
 
 test_select_list(
+    desc  => 'single hash reference',
+    input => +{
+        compact => 0,
+        args    => [
+            +{
+                -value      => 'updated_on - created_on',
+                -as         => 'duration',
+                -with_paren => 1,
+            }
+        ],
+    },
+    expects => +{
+        stmt => '( updated_on - created_on ) AS duration',
+        bind => [],
+    },
+);
+
+test_select_list(
+    desc  => 'single hash reference with compact',
+    input => +{
+        compact => 1,
+        args    => [
+            +{
+                -value      => 'updated_on - created_on',
+                -as         => 'duration',
+                -with_paren => 1,
+            }
+        ],
+    },
+    expects => +{
+        stmt => '(updated_on - created_on) AS duration',
+        bind => [],
+    },
+);
+
+test_select_list(
     desc  => 'complex array ref',
     input => +{
         compact => 0,
@@ -74,6 +110,27 @@ test_select_list(
     expects => +{
         stmt =>
 'name, COALESCE(price, ?) AS price, ( updated_on - created_on ) AS duration',
+        bind => [0],
+    },
+);
+
+test_select_list(
+    desc  => 'complex array ref with compact',
+    input => +{
+        compact => 1,
+        args    => [
+            qw/name/,
+            \[ 'COALESCE(price, ?) AS price', 0 ],
+            +{
+                -value      => 'updated_on - created_on',
+                -as         => 'duration',
+                -with_paren => 1
+            },
+        ]
+    },
+    expects => +{
+        stmt =>
+'name,COALESCE(price, ?) AS price,(updated_on - created_on) AS duration',
         bind => [0],
     },
 );
